@@ -1,7 +1,16 @@
 /* eslint-disable max-classes-per-file */
 /* eslint-disable no-restricted-globals */
 /* eslint-disable no-undef */
+
 $(document).ready(() => {
+  // Initialize map
+  const map = L.map('map').setView([0, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+  const markers = {};
+  const tracks = {};            
+  const MAX_TRACK_POINTS = 300;   
   // if deployed to a site supporting SSL, use wss://
   const protocol = document.location.protocol.startsWith('https') ? 'wss://' : 'ws://';
   const webSocket = new WebSocket(protocol + location.host);
@@ -148,6 +157,39 @@ $(document).ready(() => {
     try {
       const messageData = JSON.parse(message.data);
       console.log(messageData);
+
+      // If latitude & longitude exist, update marker
+      if (typeof messageData.IotData.latitude === 'number' &&
+          typeof messageData.IotData.longitude === 'number') {
+
+        const lat = messageData.IotData.latitude;
+        const lon = messageData.IotData.longitude;
+        const deviceId = messageData.DeviceId;
+
+        if (!markers[deviceId]) {
+          markers[deviceId] = L.marker([lat, lon]).addTo(map)
+            .bindPopup(`${deviceId}: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+        } else {
+          markers[deviceId].setLatLng([lat, lon])
+            .setPopupContent(`${deviceId}: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+        }
+
+        // Center map on latest point
+        map.setView([lat, lon], Math.max(map.getZoom(), 8));
+
+        const ll = [lat, lon];
+        if (!tracks[deviceId]) {
+          tracks[deviceId] = L.polyline([ll], { weight: 3 }).addTo(map);
+        } else {
+          tracks[deviceId].addLatLng(ll);
+
+          // optional: trim path to last N points
+          const latlngs = tracks[deviceId].getLatLngs();
+          if (latlngs.length > MAX_TRACK_POINTS) {
+            tracks[deviceId].setLatLngs(latlngs.slice(latlngs.length - MAX_TRACK_POINTS));
+          }
+        }
+      }
 
       // time and either temperature or humidity are required
       if (!messageData.MessageDate || (!messageData.IotData.temperature && !messageData.IotData.humidity)) {
